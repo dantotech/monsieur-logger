@@ -1,0 +1,98 @@
+# -- Number of pods. Keep 1 for a "single simple pod" test setup.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dantotech/monsieur-logger
+  # -- Defaults to .Chart.AppVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Schedule the pod onto a specific node / node pool.
+# Examples:
+#   kubernetes.io/hostname: aks-userpool-12345678-vmss000002
+#   agentpool: logging
+nodeSelector: {}
+
+# -- Tolerations, e.g. if the target node is tainted.
+tolerations: []
+
+affinity: {}
+
+# -- Requests and limits for the pod's container.
+# Raise cpu for high logs_per_second runs (roughly 1 core per ~100k lines/s of 256 bytes).
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+# -- Extra pod annotations. The Fluent Bit annotation below tells the
+# kubernetes filter to parse the log line as JSON (requires K8S-Logging.Parser On).
+podAnnotations:
+  fluentbit.io/parser: json
+
+podLabels: {}
+
+priorityClassName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8080
+
+config:
+  # -- Level of the app's own logs (kind="app"): debug, info, warn, error.
+  logLevel: info
+  maxConcurrentRuns: 5
+  maxLogsPerSecond: 100000
+  maxLogLength: 1048576
+  maxDurationSeconds: 604800
+
+# -- Start a run automatically when the pod starts (no API call needed).
+autoStart:
+  enabled: false
+  # -- Empty = generated (run-<timestamp>-<random>). Must be unique per run!
+  runId: ""
+  logsPerSecond: 100
+  logLength: 256
+  durationSeconds: 300
+  # -- Level weights, e.g. "debug=1,info=8,warn=1,error=0"
+  levels: "debug=1,info=1,warn=1,error=1"
+  # -- Extra labels added to every test line
+  labels: {}
+  #  scenario: baseline
+
+# -- Extra environment variables for the container.
+extraEnv: []
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 20
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 10
+
+# -- Give the app time to write run_summary records on shutdown.
+terminationGracePeriodSeconds: 30

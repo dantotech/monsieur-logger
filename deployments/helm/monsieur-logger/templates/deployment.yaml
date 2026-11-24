@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "monsieur-logger.fullname" . }}
+  labels:
+    {{- include "monsieur-logger.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # Never run two loggers in parallel during an upgrade.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "monsieur-logger.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ toYaml .Values.config | cat (toYaml .Values.autoStart) | sha256sum }}
+      labels:
+        {{- include "monsieur-logger.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: MAX_CONCURRENT_RUNS
+              value: {{ .Values.config.maxConcurrentRuns | quote }}
+            - name: MAX_LOGS_PER_SECOND
+              value: {{ .Values.config.maxLogsPerSecond | int | quote }}
+            - name: MAX_LOG_LENGTH
+              value: {{ .Values.config.maxLogLength | int | quote }}
+            - name: MAX_DURATION_SECONDS
+              value: {{ .Values.config.maxDurationSeconds | int | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- if .Values.autoStart.enabled }}
+            - name: AUTOSTART_ENABLED
+              value: "true"
+            - name: AUTOSTART_RUN_ID
+              value: {{ .Values.autoStart.runId | quote }}
+            - name: AUTOSTART_LOGS_PER_SECOND
+              value: {{ .Values.autoStart.logsPerSecond | int | quote }}
+            - name: AUTOSTART_LOG_LENGTH
+              value: {{ .Values.autoStart.logLength | int | quote }}
+            - name: AUTOSTART_DURATION_SECONDS
+              value: {{ .Values.autoStart.durationSeconds | int | quote }}
+            - name: AUTOSTART_LEVELS
+              value: {{ .Values.autoStart.levels | quote }}
+            {{- with .Values.autoStart.labels }}
+            - name: AUTOSTART_LABELS
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

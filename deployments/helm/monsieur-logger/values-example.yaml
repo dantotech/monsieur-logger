@@ -1,0 +1,27 @@
+# Example: pin to one node, give it room for ~5k lines/s, auto-start a run.
+nodeSelector:
+  kubernetes.io/hostname: aks-userpool-12345678-vmss000002
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: logging
+    effect: NoSchedule
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 64Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+
+autoStart:
+  enabled: true
+  runId: fb-load-5k-001
+  logsPerSecond: 5000
+  logLength: 512
+  durationSeconds: 600
+  levels: "debug=1,info=7,warn=1,error=1"
+  labels:
+    scenario: load-5k

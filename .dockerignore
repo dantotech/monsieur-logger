@@ -1,0 +1,7 @@
+.git
+bin
+dist
+deployments
+docs
+assets
+*.md

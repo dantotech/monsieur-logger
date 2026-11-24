@@ -1,0 +1,9 @@
+apiVersion: v2
+name: monsieur-logger
+description: Monsieur Logger - a JSON log generator for testing Fluent Bit log loss on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+icon: https://raw.githubusercontent.com/dantotech/monsieur-logger/main/assets/monsieur-logger.svg
+home: https://github.com/dantotech/monsieur-logger
+keywords: [logging, fluent-bit, adx, testing, load-generator]

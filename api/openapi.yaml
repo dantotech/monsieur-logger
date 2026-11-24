@@ -1,0 +1,216 @@
+openapi: 3.0.3
+info:
+  title: Monsieur Logger API
+  version: 1.0.0
+  description: |
+    **Bonjour!** Monsieur Logger writes JSON logs to stdout at a configurable
+    rate, size and level mix, so you can verify that your log pipeline
+    (e.g. Fluent Bit -> Azure Data Explorer) does not lose any lines.
+
+    Every test line carries a `run_id` (to tell test runs apart) and a
+    gap-free `seq` counter starting at 1. Each run also writes a
+    `run_start` and a `run_summary` record with the expected and emitted
+    counts. Compare `count()` / `dcount(seq)` in ADX with `total_expected`
+    to detect loss and duplicates.
+servers:
+  - url: /
+tags:
+  - name: runs
+    description: Start, inspect and stop log generation runs
+  - name: system
+    description: Health and build information
+paths:
+  /api/v1/runs:
+    post:
+      tags: [runs]
+      summary: Start a new test run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunSpec'
+            examples:
+              quick:
+                summary: 10 logs/s for 60s, all levels
+                value:
+                  run_id: fluentbit-smoke-001
+                  logs_per_second: 10
+                  log_length: 256
+                  duration_seconds: 60
+              heavy:
+                summary: 5000 logs/s, 1 KiB, mostly info, 10 minutes
+                value:
+                  run_id: fluentbit-load-5k-1k
+                  logs_per_second: 5000
+                  log_length: 1024
+                  duration_seconds: 600
+                  levels: { debug: 0, info: 8, warn: 1, error: 1 }
+                  labels: { scenario: load, fluentbit_version: "3.2" }
+              errorsOnly:
+                summary: Only error logs
+                value:
+                  logs_per_second: 50
+                  log_length: 128
+                  duration_seconds: 120
+                  levels: { debug: 0, info: 0, warn: 0, error: 1 }
+      responses:
+        '201':
+          description: Run started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunStatus' }
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: A run with this run_id already exists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: Too many concurrent runs or shutting down
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [runs]
+      summary: List all runs of this pod (newest first)
+      responses:
+        '200':
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RunStatus' }
+  /api/v1/runs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [runs]
+      summary: Get the status of a run
+      responses:
+        '200':
+          description: Run status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunStatus' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [runs]
+      summary: Stop a running run (writes its run_summary)
+      responses:
+        '200':
+          description: Final run status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunStatus' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v1/info:
+    get:
+      tags: [system]
+      summary: Build info, pod/node and limits
+      responses:
+        '200':
+          description: Info
+          content:
+            application/json:
+              schema: { type: object }
+  /healthz:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      responses:
+        '200': { description: OK }
+  /readyz:
+    get:
+      tags: [system]
+      summary: Readiness probe
+      responses:
+        '200': { description: OK }
+components:
+  schemas:
+    LevelWeights:
+      type: object
+      description: |
+        Relative weights per level. 0 disables a level. The distribution is
+        deterministic (weighted round robin), so expected counts per level
+        are exact. Default when omitted: all levels with weight 1.
+      properties:
+        debug: { type: integer, minimum: 0, example: 1 }
+        info: { type: integer, minimum: 0, example: 1 }
+        warn: { type: integer, minimum: 0, example: 1 }
+        error: { type: integer, minimum: 0, example: 1 }
+    RunSpec:
+      type: object
+      properties:
+        run_id:
+          type: string
+          pattern: '^[A-Za-z0-9._-]{1,64}$'
+          description: Identifier of the test run (generated if empty). Must be unique per pod.
+          example: fluentbit-test-001
+        logs_per_second:
+          type: integer
+          minimum: 1
+          default: 10
+          example: 100
+        log_length:
+          type: integer
+          minimum: 1
+          default: 256
+          description: Exact length in bytes of the `message` field.
+          example: 512
+        duration_seconds:
+          type: integer
+          minimum: 0
+          default: 0
+          description: How long to run. 0 = until stopped via DELETE.
+          example: 60
+        levels:
+          $ref: '#/components/schemas/LevelWeights'
+        labels:
+          type: object
+          additionalProperties: { type: string }
+          description: Extra key/value pairs added to every test log line.
+          example: { scenario: baseline }
+    RunStatus:
+      allOf:
+        - $ref: '#/components/schemas/RunSpec'
+        - type: object
+          properties:
+            state:
+              type: string
+              enum: [running, completed, stopped]
+            total_expected:
+              type: integer
+              description: logs_per_second * duration_seconds (0 if unbounded)
+            expected_by_level:
+              type: object
+              additionalProperties: { type: integer }
+            emitted:
+              type: integer
+            emitted_by_level:
+              type: object
+              additionalProperties: { type: integer }
+            started_at: { type: string, format: date-time }
+            finished_at: { type: string, format: date-time }
+            elapsed_seconds: { type: number }
+            actual_logs_per_second: { type: number }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
